@@ -11,46 +11,44 @@ import random
 import nltk
 import matplotlib.pyplot as plt
 
+from bs4 import BeautifulSoup
+
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.common.exceptions import TimeoutException
-
 from webdriver_manager.chrome import ChromeDriverManager
 
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
 from nltk.stem import WordNetLemmatizer
 
-nltk.download('punkt')
-nltk.download('punkt_tab')
-nltk.download('stopwords')
-nltk.download('wordnet')
+nltk.download("punkt")
+nltk.download("punkt_tab")
+nltk.download("stopwords")
+nltk.download("wordnet")
+
 
 brands = {
+    # Ethical Fashion
+    "People Tree": "www.peopletree.co.uk",
+    "Lucy & Yak": "www.lucyandyak.com",
+    "Rapanui": "rapanuiclothing.com",
+    "Passenger": "www.passenger-clothing.com",
 
-
-    'People Tree': 'www.peopletree.co.uk',
-    'Lucy & Yak': 'www.lucyandyak.com',
-    'Rapanui': 'rapanuiclothing.com',
-    'Passenger': 'www.passenger-clothing.com',
-
-
-
-    'Oh Polly': 'www.ohpolly.com',
-    'ASOS': 'www.asos.com',
-    'Boohoo': 'www.boohoo.com',
-    'Cotton Traders': 'www.cottontraders.com'
+    # Fast Fashion
+    "Primark": "www.primark.com",
+    "ASOS": "www.asos.com",
+    "Boohoo": "www.boohoo.com",
+    "Missguided": "www.missguided.co.uk"
 }
 
+ethical_brands = ["People Tree", "Lucy & Yak", "Rapanui", "Passenger"]
 
 
 options = Options()
-
-# Run browser invisibly
 options.add_argument("--headless=new")
-
 options.add_argument("--disable-blink-features=AutomationControlled")
 options.add_argument("--disable-dev-shm-usage")
 options.add_argument("--no-sandbox")
@@ -69,12 +67,131 @@ driver = webdriver.Chrome(
 
 driver.set_page_load_timeout(60)
 
+def extract_rating(review):
+    try:
+        elements = review.find_elements(By.XPATH, ".//*[@data-service-review-rating]")
+        for element in elements:
+            rating = element.get_attribute("data-service-review-rating")
+            if rating and rating.isdigit():
+                return int(rating)
+    except:
+        pass
+
+    try:
+        images = review.find_elements(By.TAG_NAME, "img")
+        for img in images:
+            alt = img.get_attribute("alt")
+            if alt:
+                match = re.search(r"Rated\s+(\d+)\s+out of\s+5", alt)
+                if match:
+                    return int(match.group(1))
+    except:
+        pass
+
+    try:
+        elements = review.find_elements(By.XPATH, ".//*[@aria-label]")
+        for element in elements:
+            label = element.get_attribute("aria-label")
+            if label:
+                match = re.search(r"Rated\s+(\d+)\s+out of\s+5", label)
+                if match:
+                    return int(match.group(1))
+    except:
+        pass
+
+    return None
 
 
-def scrape_trustpilot(brand_name, brand_slug, max_pages=120):
+def extract_customer_review_text(review):
+    """
+    Extracts customer review text only.
+    Removes company reply blocks before extracting paragraph text.
+    """
+
+    html = review.get_attribute("outerHTML")
+    soup = BeautifulSoup(html, "html.parser")
+
+    # Remove company/business reply blocks
+    for tag in soup.find_all(True):
+
+        tag_info = " ".join([
+            str(tag.get("class")),
+            str(tag.get("id")),
+            str(tag.get("data-service-review-business-reply")),
+            str(tag.get("data-business-unit-reply"))
+        ]).lower()
+
+        if "reply" in tag_info or "business-unit" in tag_info:
+            tag.decompose()
+
+    candidates = []
+
+    # Preferred Trustpilot selectors
+    preferred_selectors = [
+        "p[data-service-review-content-paragraph]",
+        "p[data-service-review-text-typography]"
+    ]
+
+    for selector in preferred_selectors:
+        for p in soup.select(selector):
+            text = p.get_text(" ", strip=True)
+            if text:
+                candidates.append(text)
+
+    # Fallback: all paragraph text after removing company replies
+    if not candidates:
+        for p in soup.find_all("p"):
+            text = p.get_text(" ", strip=True)
+            if text:
+                candidates.append(text)
+
+    cleaned_candidates = []
+
+    bad_phrases = [
+        "date of experience",
+        "thank you for your review",
+        "thanks for your review",
+        "thank you for taking the time",
+        "we are sorry",
+        "we're sorry",
+        "please contact",
+        "kind regards",
+        "best regards",
+        "customer service team",
+        "customer care team",
+        "we have requested",
+        "we would like to look into this",
+        "we’re sorry",
+        "we apologise",
+        "we apologize"
+    ]
+
+    for text in candidates:
+        text = str(text).strip()
+
+        if text == "" or len(text) < 20:
+            continue
+
+        if "see more" in text.lower():
+            continue
+
+        if any(phrase in text.lower() for phrase in bad_phrases):
+            continue
+
+        cleaned_candidates.append(text)
+
+    if cleaned_candidates:
+        return cleaned_candidates[0]
+
+    return ""
+
+
+
+def scrape_trustpilot(brand_name, brand_slug, max_pages=150):
 
     collected = []
     seen_reviews = set()
+    weak_pages = 0
 
     for page in range(1, max_pages + 1):
 
@@ -85,162 +202,101 @@ def scrape_trustpilot(brand_name, brand_slug, max_pages=120):
         print(url)
 
         try:
-
             driver.get(url)
-
-            # Random delay to reduce blocking
             time.sleep(random.uniform(4, 7))
 
-            # Scroll page
-            driver.execute_script(
-                "window.scrollTo(0, document.body.scrollHeight);"
-            )
+            for pos in [800, 1600, 2400, 3200]:
+                driver.execute_script(f"window.scrollTo(0, {pos});")
+                time.sleep(1)
 
-            time.sleep(3)
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(2)
 
             reviews = driver.find_elements(By.TAG_NAME, "article")
+            print(f"Found {len(reviews)} review containers")
 
-            print(f"Found {len(reviews)} reviews")
-
-            # Stop if no reviews found
             if len(reviews) == 0:
-
-                print("No more reviews found.")
+                print("No reviews found. Stopping this brand.")
                 break
 
             page_reviews = 0
 
             for review in reviews:
-
                 try:
-
-                
-
-                    text = ""
-
-                    paragraphs = review.find_elements(By.TAG_NAME, "p")
-
-                    if len(paragraphs) > 0:
-                        text = paragraphs[-1].text.strip()
-
+                    text = extract_customer_review_text(review)
                     text = str(text).strip()
 
-                    if len(text) < 20:
+                    if text == "" or len(text) < 20:
                         continue
 
-                    # Remove duplicates
                     if text in seen_reviews:
                         continue
 
                     seen_reviews.add(text)
 
-            
-
                     title = ""
-
                     try:
-
                         titles = review.find_elements(By.TAG_NAME, "h2")
-
-                        if len(titles) > 0:
+                        if titles:
                             title = titles[0].text.strip()
-
                     except:
                         pass
 
-        
+                    rating = extract_rating(review)
 
-                    rating = None
-
-                    try:
-
-                        rating_element = review.find_element(
-                            By.XPATH,
-                            ".//div[contains(@data-service-review-rating,'')]"
-                        )
-
-                        rating = rating_element.get_attribute(
-                            "data-service-review-rating"
-                        )
-
-                    except:
-                        pass
-
-                  
+                    if rating is None:
+                        continue
 
                     date = None
-
                     try:
-
-                        time_element = review.find_element(
-                            By.TAG_NAME,
-                            "time"
-                        )
-
-                        date = time_element.get_attribute(
-                            "datetime"
-                        )
-
+                        time_element = review.find_element(By.TAG_NAME, "time")
+                        date = time_element.get_attribute("datetime")
                     except:
                         pass
 
-    
-
-                    if brand_name in [
-                        'People Tree',
-                        'Lucy & Yak',
-                        'Rapanui',
-                        'Passenger'
-                    ]:
-
-                        category = 'Ethical Fashion'
-
-                    else:
-
-                        category = 'Fast Fashion'
-
-                
+                    category = (
+                        "Ethical Fashion"
+                        if brand_name in ethical_brands
+                        else "Fast Fashion"
+                    )
 
                     collected.append({
-                        'brand': brand_name,
-                        'category': category,
-                        'title': title,
-                        'text': text,
-                        'rating': rating,
-                        'date': date,
-                        'source': 'trustpilot'
+                        "Brand": brand_name,
+                        "Category": category,
+                        "Title": title,
+                        "Text": text,
+                        "Rating": rating,
+                        "Date": date,
+                        "Source": "Trustpilot"
                     })
 
                     page_reviews += 1
 
                 except Exception as e:
-
                     print("Review extraction error:", e)
 
-            print(f"Collected from page: {page_reviews}")
-            print(f"Total collected so far: {len(collected)}")
+            print(f"Collected this page: {page_reviews}")
+            print(f"Total collected for {brand_name}: {len(collected)}")
 
-       
             if page_reviews < 3:
+                weak_pages += 1
+            else:
+                weak_pages = 0
 
-                print("Very few new reviews found. Ending scraper.")
+            if weak_pages >= 3:
+                print("Several weak pages found. Stopping this brand.")
                 break
 
-            # Delay between pages
             time.sleep(random.uniform(2, 5))
 
         except TimeoutException:
-
-            print("Timeout occurred. Retrying...")
+            print("Timeout occurred. Moving to next page.")
             continue
 
         except Exception as e:
-
             print("Page error:", e)
 
     return collected
-
-
 
 all_data = []
 
@@ -251,23 +307,18 @@ for brand_name, brand_slug in brands.items():
     print("################################################")
 
     reviews = scrape_trustpilot(
-        brand_name,
-        brand_slug,
-        max_pages=120
+        brand_name=brand_name,
+        brand_slug=brand_slug,
+        max_pages=150
     )
 
     all_data.extend(reviews)
 
-    print(f"\nFinished {brand_name}")
-    print(f"Collected: {len(reviews)} reviews")
+    print(f"Finished {brand_name}: {len(reviews)} reviews")
 
-    # Pause between brands
-    time.sleep(random.uniform(5, 10))
-
+    time.sleep(random.uniform(6, 12))
 
 driver.quit()
-
-
 
 df = pd.DataFrame(all_data)
 
@@ -276,79 +327,95 @@ print(f"TOTAL RAW REVIEWS: {len(df)}")
 print("================================================")
 
 if len(df) == 0:
-
     print("No reviews collected.")
     exit()
 
-print("\nCleaning dataset...")
-
-# Remove duplicates
-df = df.drop_duplicates(subset=['text'])
-
-# Remove short reviews
-df = df[df['text'].str.len() > 20]
-
-# Convert date column
-df['date'] = pd.to_datetime(df['date'], errors='coerce')
-
-# Convert rating column
-df['rating'] = pd.to_numeric(df['rating'], errors='coerce')
 
 
+df = df.drop_duplicates(subset=["Text"])
+df = df[df["Text"].str.len() > 20]
 
-df = df.sort_values(by='date', ascending=False)
+df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+df["Rating"] = pd.to_numeric(df["Rating"], errors="coerce")
+
+df = df.dropna(subset=["Rating"])
+df = df.sort_values(by="Date", ascending=False)
 
 print(f"Reviews after cleaning: {len(df)}")
+print("Missing ratings:", df["Rating"].isna().sum())
 
-raw_path = r'C:\Users\LENOVO\Desktop\trustpilot_raw_max_reviews.csv'
 
+raw_path = r"D:\proposal\trustpilot_raw_corrected.csv"
 df.to_csv(raw_path, index=False)
 
-print(f"\nRaw data saved:\n{raw_path}")
 
 lemmatizer = WordNetLemmatizer()
-
-stop_words = set(stopwords.words('english'))
+stop_words = set(stopwords.words("english"))
 
 def preprocess(text):
 
     text = str(text).lower()
+    text = re.sub(r"http\S+|www\S+", "", text)
+    text = re.sub(r"[^a-z\s]", "", text)
 
-    # Remove URLs
-    text = re.sub(r'http\S+|www\S+', '', text)
-
-    # Remove punctuation and numbers
-    text = re.sub(r'[^a-z\s]', '', text)
-
-    # Tokenize
     tokens = word_tokenize(text)
 
-    # Remove stopwords + lemmatize
     tokens = [
         lemmatizer.lemmatize(word)
         for word in tokens
         if word not in stop_words
     ]
 
-    return ' '.join(tokens)
+    return " ".join(tokens)
 
-print("\nPreprocessing text...")
-
-df['clean_text'] = df['text'].apply(preprocess)
-
-print("Preprocessing complete.")
+df["Clean_Text"] = df["Text"].apply(preprocess)
 
 
-clean_path = r'C:\Users\LENOVO\Desktop\trustpilot_clean_max_reviews.csv'
 
+clean_path = r"D:\proposal\trustpilot_clean_corrected.csv"
 df.to_csv(clean_path, index=False)
 
-print(f"\nClean data saved:\n{clean_path}")
-print("\nReviews by category:\n")
-print(df['category'].value_counts())
-print("\nDate Range Summary:\n")
-print("Earliest Review:", df['date'].min())
-print("Latest Review:", df['date'].max())
+
+print("\nReviews per brand:")
+print(df["Brand"].value_counts())
+
+print("\nReviews by category:")
+print(df["Category"].value_counts())
+
+print("\nRating availability:")
+print(df["Rating"].value_counts(dropna=False).sort_index())
+
+print("\nDate range by brand:")
+print(df.groupby("Brand")["Date"].agg(["min", "max", "count"]))
+
+print("\nTruncated reviews remaining:")
+print(df["Text"].str.contains("See more", case=False, na=False).sum())
+
+print("\nPossible company replies remaining:")
+reply_check = df["Text"].str.contains(
+    "thank you for your review|thanks for your review|kind regards|customer service team|customer care team|please contact|we are sorry|we're sorry",
+    case=False,
+    na=False
+).sum()
+print(reply_check)
+
+plt.figure(figsize=(12, 6))
+df["Brand"].value_counts().plot(kind="bar")
+
+plt.title("Reviews per Brand")
+plt.xlabel("Brand")
+plt.ylabel("Number of Reviews")
+plt.xticks(rotation=45)
+plt.tight_layout()
+
+plot_path = r"D:\proposal\summary_corrected.png"
+plt.savefig(plot_path)
+plt.show()
+
+print(f"\nRaw file saved to: {raw_path}")
+print(f"Clean file saved to: {clean_path}")
+print(f"Graph saved to: {plot_path}")
+
 print("\n================================================")
 print("SCRAPING COMPLETE")
 print(f"FINAL DATASET SIZE: {len(df)} REVIEWS")
