@@ -1,49 +1,53 @@
-# -BUSI1783-dissertation
+# BUSI1783 Dissertation
+
+## Topic
+Sentiment Analysis of Trustpilot Reviews Comparing Fast Fashion and Ethical Fashion Brands.
+
+## Brands Included
+
+### Ethical Fashion
+- People Tree
+- Lucy & Yak
+- Rapanui
+- Passenger
+
+### Fast Fashion
+- ASOS
+- Boohoo
+- Primark
+- Missguided
+
+## Repository Structure
+
+data/
+- trustpilot_clean_fixed_final_uk.csv
+- trustpilot_raw_corrected.csv
+
+notebooks/
+- preprocessing.ipynb
+
+scraper_uk.py
+
+requirements.txt
+
+## Data Collection
+
+Reviews were scraped from Trustpilot using Selenium.
+
+The scraper captures:
+
+- Review text
+- Review title
+- Star rating
+- Review date
+- Brand
+
+Company responses were excluded from the final dataset to ensure sentiment analysis reflected customer opinions only.
+
+## Final Dataset
+
+Total Reviews: 1,077+
+
+## Author
+
 MSc Business Analytics Dissertation
-
-## MSc Business Analytics Dissertation
-
-### Research Topic
-
-Sentiment Analysis of Trustpilot Reviews: A Comparative Study of Ethical Fashion and Fast Fashion Brands.
-
-### Brands Analysed
-
-#### Ethical Fashion
-
-* People Tree
-* Lucy & Yak
-* Rapanui
-* Passenger
-
-#### Fast Fashion
-
-* Primark
-* ASOS
-* Boohoo
-* Oh Polly
-
-### Repository Contents
-
-* `scraper_uk.py` – Trustpilot review scraping script
-* `notebooks/preprocessing.ipynb` – text cleaning and preprocessing workflow
-* `data/trustpilot_clean.csv` – final cleaned dataset
-* `requirements.txt` – Python package dependencies
-
-### Dataset Summary
-
-* Total Reviews: 1,489
-* Ethical Fashion Reviews: 765
-* Fast Fashion Reviews: 724
-* Missing Ratings: 0
-
-### Preprocessing Steps
-
-* Duplicate removal
-* Date conversion
-* Text normalisation
-* Stop-word removal
-* Lemmatisation
-* Creation of the `Clean_Text` variable
-
-This repository has been provided to support transparency and reproducibility of the dissertation research.
