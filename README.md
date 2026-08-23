@@ -1,5 +1,4 @@
-# Consumer Sentiment Toward Sustainable Branding in UK Fast Fashion:
-# An NLP-Based Analysis of Trustpilot Reviews
+# Consumer Sentiment Toward Sustainable Branding in UK Fast Fashion: An NLP-Based Analysis of Trustpilot Reviews
 
 ## Overview
 
